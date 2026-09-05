@@ -1,6 +1,6 @@
 # php-env-validator
 
-[![CI](https://github.com/kasapdev/php-env-validator/actions/workflows/ci.yml/badge.svg)](https://github.com/kasapdev/php-env-validator/actions/workflows/ci.yml)
+[![CI](https://github.com/kasapdev/php-env-validator/actions/workflows/ci.yml/badge.svg)](https://github.com/kasapdev/php-env-validator/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![PHP](https://img.shields.io/badge/PHP-8.1%2B-777BB4?logo=php&logoColor=white)
 
 A zero-dependency, type-safe environment variable validator and `.env` file loader for PHP 8.1+. Declare the shape you expect your environment to have, validate it once at boot, and get back a plain array of correctly typed values — with every violation reported at once instead of one at a time.
 
