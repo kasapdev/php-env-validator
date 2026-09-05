@@ -1,0 +1,8 @@
+{
+  "name": "kasapdev/php-env-validator",
+  "description": "Type-safe environment variable validation and .env file loading for PHP, with aggregated error reporting.",
+  "type": "library",
+  "license": "MIT",
+  "require": {"php": ">=8.1"},
+  "autoload": {"psr-4": {"Kasapdev\\EnvValidator\\": "src/"}}
+}
