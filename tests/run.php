@@ -243,5 +243,69 @@ try {
 }
 check('loadEnvFile: throws RuntimeException for a missing file', $missingFileThrew);
 
+// ---------------------------------------------------------------------
+// EnvValidator: additional edge cases
+// ---------------------------------------------------------------------
+
+// array cast preserves empty elements from consecutive/trailing commas.
+$arrayValidator = EnvValidator::make(['LIST' => Rule::array()->required()]);
+check(
+    'array cast preserves empty elements from consecutive/trailing commas',
+    $arrayValidator->validate(['LIST' => 'a,,b,'])['LIST'] === ['a', '', 'b', '']
+);
+
+// bool cast is case-insensitive.
+$boolValidator = EnvValidator::make(['FLAG' => Rule::bool()->required()]);
+check('bool cast accepts mixed-case "YES"', $boolValidator->validate(['FLAG' => 'YES'])['FLAG'] === true);
+check('bool cast accepts mixed-case "False"', $boolValidator->validate(['FLAG' => 'False'])['FLAG'] === false);
+
+// A non-string raw value (e.g. an actual int/array already in $env) is rejected with a clear error.
+$nonStringValidator = EnvValidator::make(['PORT' => Rule::int()->required()]);
+$nonStringErrors = [];
+try {
+    $nonStringValidator->validate(['PORT' => 8080]);
+} catch (EnvValidationException $e5) {
+    $nonStringErrors = $e5->getErrors();
+}
+check('a non-string raw env value produces a clear "expected a string" error', count($nonStringErrors) === 1 && str_contains($nonStringErrors[0], 'expected a string'));
+
+// default() values are used verbatim and are NOT checked against in().
+$defaultBypassesInValidator = EnvValidator::make([
+    'APP_ENV' => Rule::string()->in(['dev', 'staging', 'production'])->default('not-in-the-list'),
+]);
+check(
+    'a default() value is used verbatim and is not checked against in()',
+    $defaultBypassesInValidator->validate([])['APP_ENV'] === 'not-in-the-list'
+);
+
+// ---------------------------------------------------------------------
+// EnvFileLoader: additional edge cases
+// ---------------------------------------------------------------------
+
+$tmpPath2 = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'php-env-validator-test-' . uniqid() . '.env';
+
+$envFileContents2 = <<<ENV
+CONN_STRING=a=b=c
+=no-key-here
+UNTERMINATED="still-open
+ENV;
+
+file_put_contents($tmpPath2, $envFileContents2);
+
+try {
+    $loaded2 = EnvFileLoader::loadEnvFile($tmpPath2);
+
+    check('loadEnvFile: only the first "=" splits key from value, rest stays in the value', $loaded2['CONN_STRING'] === 'a=b=c');
+    check('loadEnvFile: a line with an empty key is skipped entirely', !array_key_exists('', $loaded2));
+    check(
+        'loadEnvFile: an unterminated double-quoted value falls back to the literal raw text (no quote stripping)',
+        $loaded2['UNTERMINATED'] === '"still-open'
+    );
+} finally {
+    if (is_file($tmpPath2)) {
+        unlink($tmpPath2);
+    }
+}
+
 echo $__failures === 0 ? "\nAll tests passed.\n" : "\n$__failures test(s) FAILED.\n";
 exit($__failures === 0 ? 0 : 1);
