@@ -307,5 +307,49 @@ try {
     }
 }
 
+// ---------------------------------------------------------------------
+// EnvValidator::generateExampleFile(): produces a .env.example-shaped
+// string directly from the declared rules, round-trippable through
+// EnvFileLoader::loadEnvFile() without modifying that method.
+// ---------------------------------------------------------------------
+
+$exampleValidator = EnvValidator::make([
+    'DB_HOST' => Rule::string()->required(),
+    'APP_PORT' => Rule::int()->default(8080),
+    'APP_ENV' => Rule::string()->in(['dev', 'staging', 'production'])->default('production'),
+]);
+
+$example = $exampleValidator->generateExampleFile();
+
+check('generateExampleFile: returns a non-empty string', is_string($example) && $example !== '');
+check('generateExampleFile: includes a comment describing the required string rule', str_contains($example, '# Type: string, Required'));
+check('generateExampleFile: includes a comment describing the optional int rule with its default', str_contains($example, '# Type: int, Optional, Default: 8080'));
+check('generateExampleFile: includes a comment describing the allowed-values constraint', str_contains($example, 'Allowed: [dev, staging, production]'));
+check('generateExampleFile: prefills the KEY=value line with the declared default', str_contains($example, "APP_PORT=8080\n"));
+check('generateExampleFile: leaves the KEY= line blank when no default is declared', str_contains($example, "DB_HOST=\n"));
+
+$examplePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'php-env-validator-example-' . uniqid() . '.env';
+file_put_contents($examplePath, $example);
+
+try {
+    $parsedExample = EnvFileLoader::loadEnvFile($examplePath);
+
+    check('generateExampleFile -> loadEnvFile: every declared key is present in the parsed result', array_key_exists('DB_HOST', $parsedExample) && array_key_exists('APP_PORT', $parsedExample) && array_key_exists('APP_ENV', $parsedExample));
+    check('generateExampleFile -> loadEnvFile: "#" comment lines are not parsed as keys/values', count($parsedExample) === 3);
+    check('generateExampleFile -> loadEnvFile: default value round-trips as a plain string', $parsedExample['APP_PORT'] === '8080');
+    check('generateExampleFile -> loadEnvFile: key with no default parses to an empty string', $parsedExample['DB_HOST'] === '');
+
+    // The keys with defaults should also survive a real validate() call unchanged.
+    // (DB_HOST has no default and is required, so it's filled in here purely to
+    // isolate this assertion to the default-backed keys generateExampleFile() produced.)
+    $parsedExample['DB_HOST'] = 'db.internal.example.com';
+    $exampleValidated = $exampleValidator->validate($parsedExample);
+    check('generateExampleFile -> loadEnvFile -> validate(): default-backed values validate correctly', $exampleValidated['APP_PORT'] === 8080 && $exampleValidated['APP_ENV'] === 'production');
+} finally {
+    if (is_file($examplePath)) {
+        unlink($examplePath);
+    }
+}
+
 echo $__failures === 0 ? "\nAll tests passed.\n" : "\n$__failures test(s) FAILED.\n";
 exit($__failures === 0 ? 0 : 1);

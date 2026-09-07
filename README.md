@@ -59,6 +59,46 @@ try {
 
 `validate()` **never fails fast**. It checks every rule against every key first, and only then throws a single `EnvValidationException` listing *all* the problems it found — missing required keys, bad types, and disallowed values alike — so you can fix your `.env` in one pass instead of playing whack-a-mole.
 
+### A full boot-time example
+
+A more realistic setup: define the rules once, validate `$_ENV` at boot, and pass the resulting typed config around the app instead of calling `getenv()` everywhere.
+
+```php
+use Kasapdev\EnvValidator\EnvValidator;
+use Kasapdev\EnvValidator\EnvValidationException;
+use Kasapdev\EnvValidator\EnvFileLoader;
+use Kasapdev\EnvValidator\Rule;
+
+function bootConfig(): array
+{
+    $validator = EnvValidator::make([
+        'APP_ENV'      => Rule::string()->in(['dev', 'staging', 'production'])->default('production'),
+        'APP_PORT'     => Rule::int()->default(8080),
+        'APP_DEBUG'    => Rule::bool()->default(false),
+        'DB_HOST'      => Rule::string()->required(),
+        'DB_PORT'      => Rule::int()->default(5432),
+        'ALLOWED_IPS'  => Rule::array()->default([]),
+    ]);
+
+    // Merge a local .env file (if present) under real process env vars, so
+    // actual environment variables always win.
+    $fileEnv = is_file(__DIR__ . '/.env') ? EnvFileLoader::loadEnvFile(__DIR__ . '/.env') : [];
+    $env = $fileEnv + $_ENV;
+
+    try {
+        return $validator->validate($env);
+    } catch (EnvValidationException $e) {
+        fwrite(STDERR, $e->getMessage() . PHP_EOL);
+        exit(1);
+    }
+}
+
+$config = bootConfig();
+
+// From here on, every value is already the right PHP type:
+$server->listen(host: '0.0.0.0', port: $config['APP_PORT']);
+```
+
 ### Loading a `.env` file
 
 ```php
@@ -89,6 +129,44 @@ ALLOWED_IPS=127.0.0.1, 10.0.0.1, 192.168.1.1
 WELCOME_MESSAGE="Hello\nWorld"
 ```
 
+## Generating a .env.example File
+
+Since a real project's `.env.example` tends to quietly drift out of sync with whatever rules the code actually validates, `EnvValidator::generateExampleFile()` builds one directly from the declared rules instead — so it can never disagree with `validate()`.
+
+```php
+use Kasapdev\EnvValidator\EnvValidator;
+use Kasapdev\EnvValidator\Rule;
+
+$validator = EnvValidator::make([
+    'APP_ENV'     => Rule::string()->in(['dev', 'staging', 'production'])->default('production'),
+    'APP_PORT'    => Rule::int()->required(),
+    'APP_DEBUG'   => Rule::bool()->default(false),
+    'ALLOWED_IPS' => Rule::array()->default([]),
+    'DB_HOST'     => Rule::string()->required(),
+]);
+
+file_put_contents(__DIR__ . '/.env.example', $validator->generateExampleFile());
+```
+
+This produces:
+
+```env
+# Type: string, Optional, Default: production, Allowed: [dev, staging, production]
+APP_ENV=production
+# Type: int, Required
+APP_PORT=
+# Type: bool, Optional, Default: false
+APP_DEBUG=false
+# Type: array, Optional, Default: (empty)
+ALLOWED_IPS=
+# Type: string, Required
+DB_HOST=
+```
+
+Every key gets a `#` comment describing its type, whether it's required or optional, its default (if any), and its allowed values (if constrained by `->in()`), immediately followed by a `KEY=value` line — prefilled with the default when one is declared, left blank otherwise. Those `KEY=value` lines are ordinary `.env` syntax, so the file `generateExampleFile()` produces can be fed straight back into `EnvFileLoader::loadEnvFile()` (and from there into `validate()`) without any changes to either method.
+
+Run this from a small script (or a Composer/CI step) whenever your rules change, and `.env.example` stays truthful automatically instead of relying on someone to remember to update it by hand.
+
 ## API
 
 ### `Rule` (`Kasapdev\EnvValidator\Rule`)
@@ -114,6 +192,7 @@ Fluent instance methods (chainable, return `$this`):
 
 - `EnvValidator::make(array $rules): self` — `$rules` is `[string $key => Rule $rule]`.
 - `->validate(array $env): array` — validates and casts `$env` against the rules. Returns `[string $key => mixed $castValue]` on success. Throws `EnvValidationException` if any rule is violated, after checking **all** rules against **all** keys (no fail-fast).
+- `->generateExampleFile(): string` — builds a `.env.example`-shaped string directly from the declared rules (see [Generating a .env.example File](#generating-a-envexample-file)), so it can never drift from what `validate()` actually enforces.
 
 Behavior notes:
 - A key that is absent from `$env`, or present with an empty string, is treated as "not provided": it triggers `required()` failure, or falls back to `default()`, or resolves to `null` if neither applies.

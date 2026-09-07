@@ -112,6 +112,95 @@ final class EnvValidator
     }
 
     /**
+     * Generates a `.env.example`-shaped string directly from this
+     * validator's declared rules, so the example file can never drift from
+     * the actual validation rules.
+     *
+     * Each declared key produces a `#` comment line describing its type,
+     * required/optional status, default (if any) and allowed values (if
+     * any), followed by a `KEY=value` line — prefilled with the default
+     * when one is set, otherwise left blank.
+     *
+     * The `KEY=value` lines this produces are parseable as-is by
+     * EnvFileLoader::loadEnvFile().
+     */
+    public function generateExampleFile(): string
+    {
+        $lines = [];
+
+        foreach ($this->rules as $key => $rule) {
+            $lines[] = '# ' . $this->describeRule($rule);
+            $lines[] = $key . '=' . ($rule->hasDefault() ? $this->formatDefaultForEnvFile($rule->type, $rule->getDefault()) : '');
+        }
+
+        return $lines === [] ? '' : implode("\n", $lines) . "\n";
+    }
+
+    private function describeRule(Rule $rule): string
+    {
+        $parts = ['Type: ' . $rule->type->value];
+        $parts[] = $rule->isRequired() ? 'Required' : 'Optional';
+
+        if ($rule->hasDefault()) {
+            $displayDefault = $this->formatDefaultForEnvFile($rule->type, $rule->getDefault());
+            $parts[] = 'Default: ' . ($displayDefault === '' ? '(empty)' : $displayDefault);
+        }
+
+        $allowedValues = $rule->getAllowedValues();
+
+        if ($allowedValues !== null) {
+            $parts[] = 'Allowed: [' . implode(', ', array_map(
+                static fn (int|string|bool $value): string => is_bool($value) ? ($value ? 'true' : 'false') : (string) $value,
+                $allowedValues
+            )) . ']';
+        }
+
+        return implode(', ', $parts);
+    }
+
+    private function formatDefaultForEnvFile(RuleType $type, mixed $default): string
+    {
+        return match ($type) {
+            RuleType::String => $this->formatStringDefault((string) $default),
+            RuleType::Int => (string) $default,
+            RuleType::Bool => $default ? 'true' : 'false',
+            RuleType::Array => implode(',', array_map(
+                static fn (mixed $item): string => (string) $item,
+                (array) $default
+            )),
+        };
+    }
+
+    /**
+     * Quotes a string default (using the same double-quote escaping
+     * EnvFileLoader::loadEnvFile() already understands) whenever writing it
+     * unquoted would either be ambiguous or be parsed differently.
+     */
+    private function formatStringDefault(string $value): string
+    {
+        $needsQuoting = $value === ''
+            || $value !== trim($value)
+            || str_contains($value, '"')
+            || str_contains($value, '#')
+            || str_contains($value, ';')
+            || str_contains($value, "\n")
+            || str_contains($value, "\r")
+            || str_contains($value, "\t");
+
+        if (!$needsQuoting) {
+            return $value;
+        }
+
+        return '"' . strtr($value, [
+            '\\' => '\\\\',
+            '"' => '\\"',
+            "\n" => '\\n',
+            "\r" => '\\r',
+            "\t" => '\\t',
+        ]) . '"';
+    }
+
+    /**
      * @return array{0: mixed, 1: string|null}
      */
     private function cast(string $key, string $raw, RuleType $type): array
